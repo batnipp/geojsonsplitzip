@@ -4,13 +4,20 @@ import pandas as pd
 import json
 import io
 import zipfile
+from datetime import datetime
 
 st.set_page_config(layout="wide")
 st.title("GeoJSON/CSV/JSON Data Processor")
 
-# Function to clean up column names for display
 def format_column_name(col_name):
     return col_name.replace('_', ' ').title()
+
+# Custom JSON encoder to handle timestamps
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (datetime, pd.Timestamp)):
+            return obj.isoformat()
+        return super().default(obj)
 
 uploaded_file = st.file_uploader("Upload GeoJSON/CSV/JSON file", type=['geojson', 'csv', 'json'])
 
@@ -73,7 +80,6 @@ if uploaded_file:
                 for col in filter_cols[:half]:
                     unique_vals = sorted(gdf[col].dropna().unique().tolist())
                     if len(unique_vals) > 100:
-                        # For columns with many values, use text input with autocomplete
                         selected_values[col] = st.multiselect(
                             format_column_name(col),
                             unique_vals,
@@ -92,7 +98,6 @@ if uploaded_file:
                 for col in filter_cols[half:]:
                     unique_vals = sorted(gdf[col].dropna().unique().tolist())
                     if len(unique_vals) > 100:
-                        # For columns with many values, use text input with autocomplete
                         selected_values[col] = st.multiselect(
                             format_column_name(col),
                             unique_vals,
@@ -153,8 +158,8 @@ if uploaded_file:
                                   .replace('"', '')
                                   .replace("'", ""))
                         
-                        # Convert to GeoJSON string
-                        geojson_str = subset.to_json()
+                        # Convert to GeoJSON string using custom encoder
+                        geojson_str = json.dumps(json.loads(subset.to_json()), cls=DateTimeEncoder)
                         
                         # Write to zip file
                         zf.writestr(filename, geojson_str)
