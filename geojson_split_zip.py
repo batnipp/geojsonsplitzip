@@ -52,42 +52,59 @@ if uploaded_file:
         # Create filter section
         st.subheader("Filter Data")
         
-        # Create two columns for filters
-        col1, col2 = st.columns(2)
-        
-        # Split columns between the two columns
-        half = len(non_geom_cols) // 2
+        # Let user select which columns to filter by
+        filter_cols = st.multiselect(
+            "Select columns to filter by:",
+            non_geom_cols,
+            key="filter_columns"
+        )
         
         # Dictionary to store selected values
         selected_values = {}
         
-        # First column of filters
-        with col1:
-            for col in non_geom_cols[:half]:
-                try:
+        # Create filters for selected columns
+        if filter_cols:
+            # Create two columns for filters
+            col1, col2 = st.columns(2)
+            half = len(filter_cols) // 2
+            
+            # First column of filters
+            with col1:
+                for col in filter_cols[:half]:
                     unique_vals = sorted(gdf[col].dropna().unique().tolist())
-                    if len(unique_vals) > 0 and len(unique_vals) <= 50:  # Only show filter if reasonable number of unique values
+                    if len(unique_vals) > 100:
+                        # For columns with many values, use text input with autocomplete
+                        selected_values[col] = st.multiselect(
+                            format_column_name(col),
+                            unique_vals,
+                            key=f"filter_{col}",
+                            help=f"Type to search among {len(unique_vals)} values"
+                        )
+                    else:
                         selected_values[col] = st.multiselect(
                             format_column_name(col),
                             unique_vals,
                             key=f"filter_{col}"
                         )
-                except (TypeError, ValueError):
-                    continue
-        
-        # Second column of filters
-        with col2:
-            for col in non_geom_cols[half:]:
-                try:
+            
+            # Second column of filters
+            with col2:
+                for col in filter_cols[half:]:
                     unique_vals = sorted(gdf[col].dropna().unique().tolist())
-                    if len(unique_vals) > 0 and len(unique_vals) <= 50:  # Only show filter if reasonable number of unique values
+                    if len(unique_vals) > 100:
+                        # For columns with many values, use text input with autocomplete
+                        selected_values[col] = st.multiselect(
+                            format_column_name(col),
+                            unique_vals,
+                            key=f"filter_{col}_2",
+                            help=f"Type to search among {len(unique_vals)} values"
+                        )
+                    else:
                         selected_values[col] = st.multiselect(
                             format_column_name(col),
                             unique_vals,
                             key=f"filter_{col}_2"
                         )
-                except (TypeError, ValueError):
-                    continue
         
         # Apply filters
         filtered_gdf = gdf.copy()
@@ -102,14 +119,17 @@ if uploaded_file:
         if len(filtered_gdf) > 0:
             st.subheader("Export Data")
             
-            # Only show columns that would make sense to split by
-            split_cols = [col for col in non_geom_cols if len(filtered_gdf[col].unique()) <= 50]
-            split_col = st.selectbox("Select column to split by:", split_cols)
+            # Let user select any column to split by
+            split_col = st.selectbox(
+                "Select column to split by:",
+                non_geom_cols,
+                help="Files will be split based on unique values in this column"
+            )
             
             if st.button("Export"):
                 # Create zip file
                 zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w') as zf:
+                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                     for value in filtered_gdf[split_col].unique():
                         subset = filtered_gdf[filtered_gdf[split_col] == value]
                         
