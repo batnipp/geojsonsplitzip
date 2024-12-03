@@ -8,34 +8,28 @@ import zipfile
 st.set_page_config(layout="wide")
 st.title("GeoJSON/CSV/JSON Data Processor")
 
-# File upload
 uploaded_file = st.file_uploader("Upload GeoJSON/CSV/JSON file", type=['geojson', 'csv', 'json'])
 
 if uploaded_file:
-    # Load data
     try:
         if uploaded_file.name.endswith('.geojson'):
+            # Read GeoJSON directly using geopandas
             gdf = gpd.read_file(uploaded_file)
         elif uploaded_file.name.endswith('.json'):
             # Read JSON file
             json_data = json.load(uploaded_file)
             
-            # Convert to DataFrame first
-            if isinstance(json_data, list):
-                df = pd.DataFrame(json_data)
+            if isinstance(json_data, dict) and json_data.get('type') == 'FeatureCollection':
+                # Handle GeoJSON feature collection
+                gdf = gpd.read_file(io.StringIO(json.dumps(json_data)))
             else:
-                # If JSON is not a list of records, try to handle features
-                if 'features' in json_data:
-                    df = pd.DataFrame([feature['properties'] for feature in json_data['features']])
-                    # Extract geometry if present
-                    if all('geometry' in feature for feature in json_data['features']):
-                        geometries = [feature['geometry'] for feature in json_data['features']]
-                        gdf = gpd.GeoDataFrame(df, geometry=gpd.GeoSeries.from_geojson(str(geometries)))
+                # Handle regular JSON
+                if isinstance(json_data, list):
+                    df = pd.DataFrame(json_data)
                 else:
                     df = pd.DataFrame([json_data])
-            
-            # If we haven't created a GeoDataFrame yet, look for geometry columns
-            if not isinstance(df, gpd.GeoDataFrame):
+                
+                # Check for geometry column
                 geom_col = [col for col in df.columns if 'geom' in col.lower()]
                 if geom_col:
                     gdf = gpd.GeoDataFrame(df, geometry=gpd.GeoSeries.from_wkt(df[geom_col[0]]))
@@ -98,7 +92,11 @@ if uploaded_file:
                         # Clean filename
                         filename = filename.replace('/', '_').replace('\\', '_').replace(' ', '_')
                         
-                        zf.writestr(filename, subset.to_json())
+                        # Convert to GeoJSON string
+                        geojson_str = subset.to_json()
+                        
+                        # Write to zip file
+                        zf.writestr(filename, geojson_str)
                 
                 # Download button
                 st.download_button(
