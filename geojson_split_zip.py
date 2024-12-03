@@ -12,13 +12,6 @@ st.title("GeoJSON/CSV/JSON Data Processor")
 def format_column_name(col_name):
     return col_name.replace('_', ' ').title()
 
-# Custom JSON encoder to handle timestamps
-class DateTimeEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, (datetime, pd.Timestamp)):
-            return obj.isoformat()
-        return super().default(obj)
-
 uploaded_file = st.file_uploader("Upload GeoJSON/CSV/JSON file", type=['geojson', 'csv', 'json'])
 
 if uploaded_file:
@@ -158,8 +151,13 @@ if uploaded_file:
                                   .replace('"', '')
                                   .replace("'", ""))
                         
-                        # Convert to GeoJSON string using custom encoder
-                        geojson_str = json.dumps(json.loads(subset.to_json()), cls=DateTimeEncoder)
+                        # Convert timestamp columns to string before export
+                        subset_copy = subset.copy()
+                        for column in subset_copy.select_dtypes(include=['datetime64[ns]']).columns:
+                            subset_copy[column] = subset_copy[column].astype(str)
+                        
+                        # Convert to GeoJSON string
+                        geojson_str = subset_copy.to_json()
                         
                         # Write to zip file
                         zf.writestr(filename, geojson_str)
