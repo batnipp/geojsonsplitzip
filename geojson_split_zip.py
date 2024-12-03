@@ -1,21 +1,48 @@
 import streamlit as st
 import geopandas as gpd
 import pandas as pd
+import json
 import io
 import zipfile
 
 st.set_page_config(layout="wide")
-st.title("GeoJSON/CSV Data Processor")
+st.title("GeoJSON/CSV/JSON Data Processor")
 
 # File upload
-uploaded_file = st.file_uploader("Upload GeoJSON/CSV file", type=['geojson', 'csv'])
+uploaded_file = st.file_uploader("Upload GeoJSON/CSV/JSON file", type=['geojson', 'csv', 'json'])
 
 if uploaded_file:
     # Load data
     try:
         if uploaded_file.name.endswith('.geojson'):
             gdf = gpd.read_file(uploaded_file)
-        else:
+        elif uploaded_file.name.endswith('.json'):
+            # Read JSON file
+            json_data = json.load(uploaded_file)
+            
+            # Convert to DataFrame first
+            if isinstance(json_data, list):
+                df = pd.DataFrame(json_data)
+            else:
+                # If JSON is not a list of records, try to handle features
+                if 'features' in json_data:
+                    df = pd.DataFrame([feature['properties'] for feature in json_data['features']])
+                    # Extract geometry if present
+                    if all('geometry' in feature for feature in json_data['features']):
+                        geometries = [feature['geometry'] for feature in json_data['features']]
+                        gdf = gpd.GeoDataFrame(df, geometry=gpd.GeoSeries.from_geojson(str(geometries)))
+                else:
+                    df = pd.DataFrame([json_data])
+            
+            # If we haven't created a GeoDataFrame yet, look for geometry columns
+            if not isinstance(df, gpd.GeoDataFrame):
+                geom_col = [col for col in df.columns if 'geom' in col.lower()]
+                if geom_col:
+                    gdf = gpd.GeoDataFrame(df, geometry=gpd.GeoSeries.from_wkt(df[geom_col[0]]))
+                else:
+                    st.error("No geometry column found in JSON data")
+                    st.stop()
+        else:  # CSV file
             df = pd.read_csv(uploaded_file)
             geom_col = [col for col in df.columns if 'geom' in col.lower()][0]
             gdf = gpd.GeoDataFrame(df, geometry=gpd.GeoSeries.from_wkt(df[geom_col]))
