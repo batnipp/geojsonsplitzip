@@ -43,7 +43,7 @@ if uploaded_file:
         
         # Show data preview in an expandable section
         with st.expander("Data Preview", expanded=False):
-            st.dataframe(gdf.head())
+            st.dataframe(gdf.head(100))
         
         # Get columns for filtering, excluding geometry and complex objects
         non_geom_cols = [col for col in gdf.columns if col != 'geometry' and 
