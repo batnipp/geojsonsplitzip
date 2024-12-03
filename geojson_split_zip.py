@@ -12,6 +12,18 @@ st.title("GeoJSON/CSV/JSON Data Processor")
 def format_column_name(col_name):
     return col_name.replace('_', ' ').title()
 
+def convert_timestamps_in_properties(properties):
+    """Convert any timestamps in properties to strings."""
+    if isinstance(properties, dict):
+        for key, value in properties.items():
+            if isinstance(value, (pd.Timestamp, datetime)):
+                properties[key] = value.isoformat()
+            elif isinstance(value, dict):
+                properties[key] = convert_timestamps_in_properties(value)
+            elif isinstance(value, list):
+                properties[key] = [convert_timestamps_in_properties(item) if isinstance(item, dict) else item for item in value]
+    return properties
+
 uploaded_file = st.file_uploader("Upload GeoJSON/CSV/JSON file", type=['geojson', 'csv', 'json'])
 
 if uploaded_file:
@@ -150,26 +162,17 @@ if uploaded_file:
                                   .replace(' ', '_')
                                   .replace('"', '')
                                   .replace("'", ""))
-
-                        # First convert to dictionary to handle nested timestamps
-                        geojson_dict = json.loads(subset.to_json())
                         
-                        # Function to recursively convert timestamps
-                        def convert_timestamps(obj):
-                            if isinstance(obj, dict):
-                                return {k: convert_timestamps(v) for k, v in obj.items()}
-                            elif isinstance(obj, list):
-                                return [convert_timestamps(item) for item in obj]
-                            elif isinstance(obj, pd.Timestamp):
-                                return obj.isoformat()
-                            else:
-                                return obj
-
-                        # Convert any timestamps in the entire structure
-                        geojson_dict = convert_timestamps(geojson_dict)
+                        # Convert the GeoDataFrame to a feature collection dictionary
+                        feature_collection = json.loads(subset.to_json())
                         
-                        # Convert back to JSON string
-                        geojson_str = json.dumps(geojson_dict)
+                        # Convert timestamps in properties
+                        for feature in feature_collection['features']:
+                            if 'properties' in feature:
+                                feature['properties'] = convert_timestamps_in_properties(feature['properties'])
+                        
+                        # Convert to JSON string
+                        geojson_str = json.dumps(feature_collection)
                         
                         # Write to zip file
                         zf.writestr(filename, geojson_str)
