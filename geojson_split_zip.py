@@ -143,6 +143,18 @@ if uploaded_file:
                     for value in filtered_gdf[split_col].unique():
                         subset = filtered_gdf[filtered_gdf[split_col] == value]
                         
+                        # Convert all datetime columns to strings before conversion to GeoJSON
+                        subset_copy = subset.copy()
+                        for col in subset_copy.select_dtypes(include=['datetime64[ns]']).columns:
+                            subset_copy[col] = subset_copy[col].astype(str)
+                        
+                        # Handle nested timestamps in properties
+                        for col in subset_copy.columns:
+                            if isinstance(subset_copy[col].iloc[0], dict):
+                                subset_copy[col] = subset_copy[col].apply(
+                                    lambda x: convert_timestamps_in_properties(x)
+                                )
+                        
                         # Create filename with filter information
                         filter_info = []
                         for col, vals in selected_values.items():
@@ -163,16 +175,8 @@ if uploaded_file:
                                   .replace('"', '')
                                   .replace("'", ""))
                         
-                        # Convert the GeoDataFrame to a feature collection dictionary
-                        feature_collection = json.loads(subset.to_json())
-                        
-                        # Convert timestamps in properties
-                        for feature in feature_collection['features']:
-                            if 'properties' in feature:
-                                feature['properties'] = convert_timestamps_in_properties(feature['properties'])
-                        
-                        # Convert to JSON string
-                        geojson_str = json.dumps(feature_collection)
+                        # Convert to GeoJSON string
+                        geojson_str = subset_copy.to_json()
                         
                         # Write to zip file
                         zf.writestr(filename, geojson_str)
