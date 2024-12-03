@@ -150,14 +150,26 @@ if uploaded_file:
                                   .replace(' ', '_')
                                   .replace('"', '')
                                   .replace("'", ""))
+
+                        # First convert to dictionary to handle nested timestamps
+                        geojson_dict = json.loads(subset.to_json())
                         
-                        # Convert timestamp columns to string before export
-                        subset_copy = subset.copy()
-                        for column in subset_copy.select_dtypes(include=['datetime64[ns]']).columns:
-                            subset_copy[column] = subset_copy[column].astype(str)
+                        # Function to recursively convert timestamps
+                        def convert_timestamps(obj):
+                            if isinstance(obj, dict):
+                                return {k: convert_timestamps(v) for k, v in obj.items()}
+                            elif isinstance(obj, list):
+                                return [convert_timestamps(item) for item in obj]
+                            elif isinstance(obj, pd.Timestamp):
+                                return obj.isoformat()
+                            else:
+                                return obj
+
+                        # Convert any timestamps in the entire structure
+                        geojson_dict = convert_timestamps(geojson_dict)
                         
-                        # Convert to GeoJSON string
-                        geojson_str = subset_copy.to_json()
+                        # Convert back to JSON string
+                        geojson_str = json.dumps(geojson_dict)
                         
                         # Write to zip file
                         zf.writestr(filename, geojson_str)
