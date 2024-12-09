@@ -12,17 +12,15 @@ st.title("GeoJSON/CSV/JSON Data Processor")
 def format_column_name(col_name):
     return col_name.replace('_', ' ').title()
 
-def convert_timestamps_in_properties(properties):
-    """Convert any timestamps in properties to strings."""
-    if isinstance(properties, dict):
-        for key, value in properties.items():
-            if isinstance(value, (pd.Timestamp, datetime)):
-                properties[key] = value.isoformat()
-            elif isinstance(value, dict):
-                properties[key] = convert_timestamps_in_properties(value)
-            elif isinstance(value, list):
-                properties[key] = [convert_timestamps_in_properties(item) if isinstance(item, dict) else item for item in value]
-    return properties
+def convert_timestamps_to_str(data):
+    """Convert any timestamps in data to ISO format strings."""
+    if isinstance(data, (pd.Timestamp, datetime)):
+        return data.isoformat()
+    elif isinstance(data, dict):
+        return {k: convert_timestamps_to_str(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_timestamps_to_str(item) for item in data]
+    return data
 
 uploaded_file = st.file_uploader("Upload GeoJSON/CSV/JSON file", type=['geojson', 'csv', 'json'])
 
@@ -31,11 +29,23 @@ if uploaded_file:
         # Read data based on file type
         if uploaded_file.name.endswith('.geojson'):
             gdf = gpd.read_file(uploaded_file)
+            # Convert timestamp columns to datetime
+            for col in gdf.select_dtypes(include=['object']).columns:
+                try:
+                    gdf[col] = pd.to_datetime(gdf[col])
+                except:
+                    pass
         elif uploaded_file.name.endswith('.json'):
             json_data = json.load(uploaded_file)
             
             if isinstance(json_data, dict) and json_data.get('type') == 'FeatureCollection':
                 gdf = gpd.read_file(io.StringIO(json.dumps(json_data)))
+                # Convert timestamp columns to datetime
+                for col in gdf.select_dtypes(include=['object']).columns:
+                    try:
+                        gdf[col] = pd.to_datetime(gdf[col])
+                    except:
+                        pass
             else:
                 if isinstance(json_data, list):
                     df = pd.DataFrame(json_data)
@@ -59,7 +69,7 @@ if uploaded_file:
         
         # Get columns for filtering, excluding geometry and complex objects
         non_geom_cols = [col for col in gdf.columns if col != 'geometry' and 
-                        gdf[col].dtype in ['object', 'int64', 'float64', 'bool']]
+                        gdf[col].dtype in ['object', 'int64', 'float64', 'bool', 'datetime64[ns]']]
         
         # Create filter section
         st.subheader("Filter Data")
@@ -143,17 +153,14 @@ if uploaded_file:
                     for value in filtered_gdf[split_col].unique():
                         subset = filtered_gdf[filtered_gdf[split_col] == value]
                         
-                        # Convert all datetime columns to strings before conversion to GeoJSON
-                        subset_copy = subset.copy()
-                        for col in subset_copy.select_dtypes(include=['datetime64[ns]']).columns:
-                            subset_copy[col] = subset_copy[col].astype(str)
+                        # Convert DataFrame to dictionary and handle timestamps
+                        geojson_dict = json.loads(subset.to_json())
                         
-                        # Handle nested timestamps in properties
-                        for col in subset_copy.columns:
-                            if isinstance(subset_copy[col].iloc[0], dict):
-                                subset_copy[col] = subset_copy[col].apply(
-                                    lambda x: convert_timestamps_in_properties(x)
-                                )
+                        # Convert timestamp fields in properties
+                        if 'features' in geojson_dict:
+                            for feature in geojson_dict['features']:
+                                if 'properties' in feature:
+                                    feature['properties'] = convert_timestamps_to_str(feature['properties'])
                         
                         # Create filename with filter information
                         filter_info = []
@@ -175,11 +182,8 @@ if uploaded_file:
                                   .replace('"', '')
                                   .replace("'", ""))
                         
-                        # Convert to GeoJSON string
-                        geojson_str = subset_copy.to_json()
-                        
                         # Write to zip file
-                        zf.writestr(filename, geojson_str)
+                        zf.writestr(filename, json.dumps(geojson_dict))
                 
                 # Download button
                 st.download_button(
