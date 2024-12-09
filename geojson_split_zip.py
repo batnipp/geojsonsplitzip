@@ -12,21 +12,12 @@ st.title("GeoJSON/CSV/JSON Data Processor")
 def format_column_name(col_name):
     return col_name.replace('_', ' ').title()
 
-def convert_timestamps_to_str(data):
-    """Convert any timestamps in data to ISO format strings."""
-    if isinstance(data, (pd.Timestamp, datetime)):
-        return data.isoformat()
-    elif isinstance(data, dict):
-        return {k: convert_timestamps_to_str(v) for k, v in data.items()}
-    elif isinstance(data, list):
-        return [convert_timestamps_to_str(item) for item in data]
-    return data
-
-def serialize_datetime(obj):
-    """JSON serializer for datetime objects"""
-    if isinstance(obj, (datetime, pd.Timestamp)):
-        return obj.isoformat()
-    raise TypeError(f"Type {type(obj)} not serializable")
+def convert_df_timestamps(df):
+    """Convert all timestamp columns in a dataframe to ISO format strings"""
+    df = df.copy()
+    for col in df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, UTC]']).columns:
+        df[col] = df[col].dt.strftime('%Y-%m-%dT%H:%M:%S')
+    return df
 
 uploaded_file = st.file_uploader("Upload GeoJSON/CSV/JSON file", type=['geojson', 'csv', 'json'])
 
@@ -35,11 +26,15 @@ if uploaded_file:
         # Read data based on file type
         if uploaded_file.name.endswith('.geojson'):
             gdf = gpd.read_file(uploaded_file)
+            # Convert timestamps immediately after reading
+            gdf = convert_df_timestamps(gdf)
+            
         elif uploaded_file.name.endswith('.json'):
             json_data = json.load(uploaded_file)
             
             if isinstance(json_data, dict) and json_data.get('type') == 'FeatureCollection':
                 gdf = gpd.read_file(io.StringIO(json.dumps(json_data)))
+                gdf = convert_df_timestamps(gdf)
             else:
                 if isinstance(json_data, list):
                     df = pd.DataFrame(json_data)
@@ -49,6 +44,7 @@ if uploaded_file:
                 geom_col = [col for col in df.columns if 'geom' in col.lower()]
                 if geom_col:
                     gdf = gpd.GeoDataFrame(df, geometry=gpd.GeoSeries.from_wkt(df[geom_col[0]]))
+                    gdf = convert_df_timestamps(gdf)
                 else:
                     st.error("No geometry column found in JSON data")
                     st.stop()
@@ -56,6 +52,7 @@ if uploaded_file:
             df = pd.read_csv(uploaded_file)
             geom_col = [col for col in df.columns if 'geom' in col.lower()][0]
             gdf = gpd.GeoDataFrame(df, geometry=gpd.GeoSeries.from_wkt(df[geom_col]))
+            gdf = convert_df_timestamps(gdf)
         
         # Show data preview
         with st.expander("Data Preview", expanded=False):
@@ -122,12 +119,8 @@ if uploaded_file:
                     for value in filtered_gdf[split_col].unique():
                         subset = filtered_gdf[filtered_gdf[split_col] == value]
                         
-                        # Convert datetime columns to strings before conversion
-                        for col in subset.select_dtypes(include=['datetime64[ns]']).columns:
-                            subset[col] = subset[col].astype(str)
-                        
-                        # Convert to GeoJSON string with custom serializer
-                        geojson_str = json.dumps(json.loads(subset.to_json()), default=serialize_datetime)
+                        # Convert to GeoJSON with timestamps already converted
+                        geojson_str = subset.to_json()
                         
                         # Create filename
                         filter_info = []
